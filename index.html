@@ -18,7 +18,7 @@
     <h2>🚌 香港巴士到站預報 (KMB)</h2>
     
     <div class="search-box">
-        <input type="text" id="routeInput" placeholder="輸入巴士路線 (例如: 1A, 98C)">
+        <input type="text" id="routeInput" placeholder="輸入巴士路線 (例如: 1A, 30X)">
         <select id="boundSelect">
             <option value="outbound">去程 (Outbound)</option>
             <option value="inbound">回程 (Inbound)</option>
@@ -36,8 +36,7 @@
         // 搜尋路線與中途站
         async function searchRoute() {
             const route = document.getElementById('routeInput').value.toUpperCase().trim();
-            const boundSelect = document.getElementById('boundSelect').value;
-            const dir = boundSelect === 'outbound' ? 'O' : 'I';
+            const dir = document.getElementById('boundSelect').value; // 修正：直接使用 'outbound' 或 'inbound'
             
             if (!route) return alert('請輸入路線');
             
@@ -46,7 +45,7 @@
             document.getElementById('routeTitle').innerText = `路線: ${route}`;
 
             try {
-                // 1. 獲取該路線的車站列表 (預設 service_type 為 1 正常班次)
+                // 發送請求，例如：route-stop/30X/inbound/1
                 const response = await fetch(`${apiBase}/route-stop/${route}/${dir}/1`);
                 const resData = await response.json();
                 
@@ -58,7 +57,6 @@
                 // 2. 渲染車站列表
                 let listHtml = "<h4>請選擇車站查看 ETA：</h4>";
                 for (let item of resData.data) {
-                    // 獲取各站的詳細名稱
                     const stopName = await getStopName(item.stop);
                     listHtml += `<div class="stop-item" onclick="getETA('${item.stop}', '${route}')">
                                     ${item.seq}. ${stopName}
@@ -87,7 +85,6 @@
         async function getETA(stopId, route) {
             document.getElementById('etaResult').innerHTML = "正在獲取到站時間...";
             try {
-                // 使用 stop-eta API 獲取該站所有路線，再篩選指定路線
                 const response = await fetch(`${apiBase}/stop-eta/${stopId}`);
                 const resData = await response.json();
                 
@@ -107,7 +104,6 @@
                 });
                 
                 document.getElementById('etaResult').innerHTML = etaHtml;
-                // 滾動到頁面底部方便觀看
                 document.getElementById('etaResult').scrollIntoView({ behavior: 'smooth' });
 
             } catch (error) {
