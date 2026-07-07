@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>香港巴士到站時間預報</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; }
+        .search-box { margin-bottom: 20px; }
+        input, button, select { padding: 10px; font-size: 16px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        .stop-item { padding: 10px; border-bottom: 1px solid #ccc; cursor: pointer; }
+        .stop-item:hover { background-color: #f0f0f0; }
+        .eta-item { background: #eef7ff; padding: 5px 10px; margin: 5px 0; border-left: 5px solid #007bff; }
+    </style>
+</head>
+<body>
+
+    <h2>🚌 香港巴士到站預報 (KMB)</h2>
+    
+    <div class="search-box">
+        <input type="text" id="routeInput" placeholder="輸入巴士路線 (例如: 1A, 98C)">
+        <select id="boundSelect">
+            <option value="outbound">去程 (Outbound)</option>
+            <option value="inbound">回程 (Inbound)</option>
+        </select>
+        <button onclick="searchRoute()">搜尋路線</button>
+    </div>
+
+    <h3 id="routeTitle"></h3>
+    <div id="stopList"></div>
+    <div id="etaResult"></div>
+
+    <script>
+        const apiBase = "https://data.etabus.gov.hk/v1/transport/kmb";
+
+        // 搜尋路線與中途站
+        async function searchRoute() {
+            const route = document.getElementById('routeInput').value.toUpperCase().trim();
+            const boundSelect = document.getElementById('boundSelect').value;
+            const dir = boundSelect === 'outbound' ? 'O' : 'I';
+            
+            if (!route) return alert('請輸入路線');
+            
+            document.getElementById('stopList').innerHTML = "載入中...";
+            document.getElementById('etaResult').innerHTML = "";
+            document.getElementById('routeTitle').innerText = `路線: ${route}`;
+
+            try {
+                // 1. 獲取該路線的車站列表 (預設 service_type 為 1 正常班次)
+                const response = await fetch(`${apiBase}/route-stop/${route}/${dir}/1`);
+                const resData = await response.json();
+                
+                if (!resData.data || resData.data.length === 0) {
+                    document.getElementById('stopList').innerHTML = "找不到該路線或方向資料。";
+                    return;
+                }
+
+                // 2. 渲染車站列表
+                let listHtml = "<h4>請選擇車站查看 ETA：</h4>";
+                for (let item of resData.data) {
+                    // 獲取各站的詳細名稱
+                    const stopName = await getStopName(item.stop);
+                    listHtml += `<div class="stop-item" onclick="getETA('${item.stop}', '${route}')">
+                                    ${item.seq}. ${stopName}
+                                 </div>`;
+                }
+                document.getElementById('stopList').innerHTML = listHtml;
+
+            } catch (error) {
+                console.error(error);
+                document.getElementById('stopList').innerHTML = "查詢出錯，請稍後再試。";
+            }
+        }
+
+        // 獲取單個車站名稱
+        async function getStopName(stopId) {
+            try {
+                const response = await fetch(`${apiBase}/stop/${stopId}`);
+                const resData = await response.json();
+                return resData.data.name_tc || "未知車站";
+            } catch {
+                return "未知車站";
+            }
+        }
+
+        // 獲取特定車站及路線的到站時間 (ETA)
+        async function getETA(stopId, route) {
+            document.getElementById('etaResult').innerHTML = "正在獲取到站時間...";
+            try {
+                // 使用 stop-eta API 獲取該站所有路線，再篩選指定路線
+                const response = await fetch(`${apiBase}/stop-eta/${stopId}`);
+                const resData = await response.json();
+                
+                // 篩選出符合當前路線的班次
+                const etas = resData.data.filter(item => item.route === route);
+                
+                if (etas.length === 0) {
+                    document.getElementById('etaResult').innerHTML = "<h4>暫時沒有到站時間資料。</h4>";
+                    return;
+                }
+
+                let etaHtml = `<h4>${etas[0].dest_tc} 方向 - 到站預報：</h4>`;
+                etas.forEach(item => {
+                    const time = item.eta ? new Date(item.eta).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "未有資料";
+                    const rmk = item.rmk_tc || "";
+                    etaHtml += `<div class="eta-item"><b>${time}</b> - ${rmk}</div>`;
+                });
+                
+                document.getElementById('etaResult').innerHTML = etaHtml;
+                // 滾動到頁面底部方便觀看
+                document.getElementById('etaResult').scrollIntoView({ behavior: 'smooth' });
+
+            } catch (error) {
+                console.error(error);
+                document.getElementById('etaResult').innerHTML = "無法獲取到站時間。";
+            }
+        }
+    </script>
+</body>
+</html>
