@@ -1,139 +1,206 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>香港巴士到站時間預報 (KMB)</title>
-    <style>
-        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; }
-        .search-box { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        input, button, select { padding: 12px; font-size: 16px; margin: 5px 0; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
-        button { background-color: #d9251c; color: white; font-weight: bold; cursor: pointer; border: none; }
-        button:hover { background-color: #b81d15; }
-        .route-info { background: #fff3f3; padding: 10px; border-left: 5px solid #d9251c; margin: 15px 0; border-radius: 4px; }
-        .stop-item { padding: 12px; border-bottom: 1px solid #eee; cursor: pointer; background: white; margin: 3px 0; border-radius: 4px; display: flex; justify-content: space-between; }
-        .stop-item:hover { background-color: #f1f1f1; }
-        .eta-container { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-top: 20px; }
-        .eta-item { background: #eef7ff; padding: 10px; margin: 5px 0; border-left: 5px solid #007bff; border-radius: 4px; display: flex; justify-content: space-between; }
-        .eta-time { font-weight: bold; color: #007bff; font-size: 18px; }
-    </style>
+    <title>數碼港巴士即時 ETA 儀表板</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- Leaflet Map CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
-<body>
+<body class="bg-gray-100 font-sans min-h-screen flex flex-col">
 
-    <h2>🚌 香港巴士到站預報 (九巴 KMB)</h2>
-    
-    <div class="search-box">
-        <input type="text" id="routeInput" placeholder="輸入九巴路線 (例如: 1A, 30X, 968)">
-        <select id="boundSelect">
-            <option value="outbound">去程 (Outbound)</option>
-            <option value="inbound">回程 (Inbound)</option>
-        </select>
-        <button onclick="searchRoute()">搜尋路線</button>
+    <!-- 頂部導航欄 -->
+    <header class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
+        <h1 class="text-xl font-bold">📍 數碼港智慧巴士站</h1>
+        <div class="flex items-center space-x-4">
+            <!-- 刷新頻率設定 -->
+            <label class="text-sm">更新頻率:</label>
+            <select id="refreshInterval" class="bg-white text-gray-800 rounded px-2 py-1 text-sm" onchange="setupAutoRefresh()">
+                <option value="60000">1 分鐘</option>
+                <option value="300000">5 分鐘</option>
+            </select>
+            <button onclick="fetchAllETAs()" class="bg-blue-800 hover:bg-blue-900 px-3 py-1 rounded text-sm transition">🔄 立即刷新</button>
+        </div>
+    </header>
+
+    <!-- 主內容區 -->
+    <div class="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+        
+        <!-- 左側：Profile 設定與 ETA 顯示 -->
+        <div class="md:col-span-1 flex flex-col space-y-4">
+            
+            <!-- Profile 巴士路線管理 -->
+            <div class="bg-white p-4 rounded-lg shadow">
+                <h2 class="text-lg font-semibold mb-3">👤 我的巴士 Profile</h2>
+                <div class="flex space-x-2 mb-3">
+                    <input type="text" id="newRoute" placeholder="例如: 30X, 970, 42C" class="border rounded px-3 py-1 flex-1 text-sm uppercase">
+                    <button onclick="addRoute()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-1 rounded text-sm transition">新增</button>
+                </div>
+                <div id="profileTags" class="flex flex-wrap gap-2">
+                    <!-- 路線標籤會生成在這裡 -->
+                </div>
+            </div>
+
+            <!-- ETA 顯示列表 -->
+            <div class="bg-white p-4 rounded-lg shadow flex-1 overflow-y-auto">
+                <h2 class="text-lg font-semibold mb-3 flex justify-between">
+                    <span>⏱️ 即時到站時間 (ETA)</span>
+                    <span id="countdownText" class="text-xs text-gray-500 self-center"></span>
+                </h2>
+                <div id="etaList" class="space-y-3">
+                    <p class="text-gray-500 text-sm">請先在上方 Profile 新增巴士路線。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右側：地圖顯示 -->
+        <div class="md:col-span-2 bg-white rounded-lg shadow overflow-hidden h-[500px] md:h-auto min-h-[400px]">
+            <div id="map" class="w-full h-full"></div>
+        </div>
     </div>
-
-    <div id="routeInfoBox" class="route-info" style="display: none;">
-        <strong id="routeTitle"></strong><br>
-        <span id="routeDirections"></span>
-    </div>
-
-    <div id="stopList"></div>
-    <div id="etaResult"></div>
 
     <script>
-        const apiBase = "https://data.etabus.gov.hk/v1/transport/kmb";
+        // 固定 GPS：數碼港
+        const CYBERPORT_LAT = 22.2593;
+        const CYBERPORT_LNG = 114.1321;
+        
+        let map;
+        let cyberportMarker;
+        let refreshTimer = null;
+        
+        // 從本地儲存載入 Profile 路線，預設提供 30X 和 970
+        let favoriteRoutes = JSON.parse(localStorage.getItem('fav_bus_routes')) || ['30X', '970'];
 
-        async function searchRoute() {
-            const route = document.getElementById('routeInput').value.toUpperCase().trim();
-            const dir = document.getElementById('boundSelect').value; 
-            
-            if (!route) return alert('請輸入路線');
-            
-            document.getElementById('stopList').innerHTML = "正在載入車站列表...";
-            document.getElementById('etaResult').innerHTML = "";
-            document.getElementById('routeInfoBox').style.display = "none";
+        // 初始化網頁
+        window.onload = function() {
+            initMap();
+            renderProfileTags();
+            setupAutoRefresh();
+            fetchAllETAs();
+        };
 
-            try {
-                // 依據數據字典 2.1 節，先獲取路線起點與終點資訊
-                const routeRes = await fetch(`${apiBase}/route/${route}/${dir}/1`);
-                const routeData = await routeRes.json();
-                
-                if (routeData.data && routeData.data.orig_tc) {
-                    document.getElementById('routeTitle').innerText = `九巴路線: ${route}`;
-                    document.getElementById('routeDirections').innerText = `起點：${routeData.data.orig_tc} ➔ 終點：${routeData.data.dest_tc}`;
-                    document.getElementById('routeInfoBox').style.display = "block";
-                }
+        // 1. 初始化地圖
+        function initMap() {
+            map = L.map('map').setView([CYBERPORT_LAT, CYBERPORT_LNG], 16);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
 
-                // 依據數據字典 2.3 節，獲取該路線的車站列表
-                const response = await fetch(`${apiBase}/route-stop/${route}/${dir}/1`);
-                const resData = await response.json();
-                
-                if (!resData.data || resData.data.length === 0) {
-                    document.getElementById('stopList').innerHTML = "<p>找不到該九巴路線或方向資料。若目的地為數碼港，請使用城巴 API。</p>";
-                    return;
-                }
-
-                // 渲染車站列表
-                let listHtml = "<h3>請點擊車站查看到站時間 (ETA)：</h3>";
-                for (let item of resData.data) {
-                    const stopName = await getStopName(item.stop);
-                    listHtml += `<div class="stop-item" onclick="getETA('${item.stop}', '${route}')">
-                                    <span>${item.seq}. ${stopName}</span>
-                                    <span style="color: #999; font-size: 12px;">ID: ${item.stop.substring(0,6)}</span>
-                                 </div>`;
-                }
-                document.getElementById('stopList').innerHTML = listHtml;
-
-            } catch (error) {
-                console.error(error);
-                document.getElementById('stopList').innerHTML = "查詢出錯，請稍後再試。";
-            }
+            // 標記數碼港核心位置
+            cyberportMarker = L.marker([CYBERPORT_LAT, CYBERPORT_LNG])
+                .addTo(map)
+                .bindPopup('<b>📍 您當前的位置：數碼港</b>')
+                .openPopup();
         }
 
-        // 依據數據字典 2.2 節，獲取車站名稱
-        async function getStopName(stopId) {
-            try {
-                const response = await fetch(`${apiBase}/stop/${stopId}`);
-                const resData = await response.json();
-                return resData.data.name_tc || "未知車站";
-            } catch {
-                return "未知車站";
-            }
+        // 2. 渲染 Profile 標籤
+        function renderProfileTags() {
+            const container = document.getElementById('profileTags');
+            container.innerHTML = '';
+            favoriteRoutes.forEach(route => {
+                container.innerHTML += `
+                    <span class="inline-flex items-center bg-blue-100 text-blue-800 text-sm font-medium px-2.5 py-0.5 rounded shadow-sm">
+                        ${route}
+                        <button onclick="removeRoute('${route}')" class="ml-1.5 text-blue-500 hover:text-blue-900 font-bold">×</button>
+                    </span>
+                `;
+            });
+            localStorage.setItem('fav_bus_routes', JSON.stringify(favoriteRoutes));
         }
 
-        // 依據數據字典 2.4 節，獲取特定的到站時間 (ETA)
-        async function getETA(stopId, route) {
-            document.getElementById('etaResult').innerHTML = "<div class='eta-container'>正在獲取到站時間...</div>";
-            try {
-                const response = await fetch(`${apiBase}/stop-eta/${stopId}`);
-                const resData = await response.json();
-                
-                // 篩選出符合當前路線的班次
-                const etas = resData.data.filter(item => item.route === route);
-                
-                if (etas.length === 0) {
-                    document.getElementById('etaResult').innerHTML = "<div class='eta-container'><h4>暫時沒有到站時間資料。</h4></div>";
-                    return;
-                }
-
-                let etaHtml = `<div class='eta-container'><h3>往 ${etas[0].dest_tc} 方向預預報：</h3>`;
-                etas.forEach(item => {
-                    // 解析時間格式
-                    const time = item.eta ? new Date(item.eta).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "未有資料";
-                    const rmk = item.rmk_tc || "即將到達";
-                    etaHtml += `<div class="eta-item">
-                                    <span class="eta-time">${time}</span>
-                                    <span style="color: #666;">${rmk}</span>
-                                </div>`;
-                });
-                etaHtml += `</div>`;
-                
-                document.getElementById('etaResult').innerHTML = etaHtml;
-                document.getElementById('etaResult').scrollIntoView({ behavior: 'smooth' });
-
-            } catch (error) {
-                console.error(error);
-                document.getElementById('etaResult').innerHTML = "<div class='eta-container'>無法獲取到站時間。</div>";
+        // 3. 新增與刪除路線
+        function addRoute() {
+            const input = document.getElementById('newRoute');
+            const route = input.value.trim().toUpperCase();
+            if (route && !favoriteRoutes.includes(route)) {
+                favoriteRoutes.push(route);
+                renderProfileTags();
+                fetchAllETAs();
             }
+            input.value = '';
+        }
+
+        function removeRoute(route) {
+            favoriteRoutes = favoriteRoutes.filter(r => r !== route);
+            renderProfileTags();
+            fetchAllETAs();
+        }
+
+        // 4. 設定自動刷新計時器
+        function setupAutoRefresh() {
+            if (refreshTimer) clearInterval(refreshTimer);
+            const interval = parseInt(document.getElementById('refreshInterval').value);
+            refreshTimer = setInterval(() => {
+                fetchAllETAs();
+            }, interval);
+        }
+
+        // 5. 核心：獲取所有 Profile 巴士的 ETA 數據
+        async function fetchAllETAs() {
+            const etaListContainer = document.getElementById('etaList');
+            if (favoriteRoutes.length === 0) {
+                etaListContainer.innerHTML = '<p class="text-gray-500 text-sm">Profile 中沒有路線。</p>';
+                return;
+            }
+
+            etaListContainer.innerHTML = '<p class="text-blue-500 text-sm animate-pulse">更新數據中...</p>';
+            
+            let htmlContent = '';
+            
+            // 遍歷使用者收藏的每條路線
+            for (let route of favoriteRoutes) {
+                try {
+                    // 為了簡化前端運算，這裡直接向城巴 API 請求該路線在「數碼港總站」或周邊的動態 ETA
+                    // 註：此處以城巴數碼港大型總站常用的某幾個站點邏輯或範例串接
+                    // 實際生產環境中可精準比對數碼港周邊所有 StopID
+                    
+                    // 呼叫城巴 v2 API (此處示範直接拿取該路線數據，政府 API 支援 CORS)
+                    const response = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/ctb/002517/${route}`);
+                    const result = await response.json();
+                    
+                    htmlContent += `
+                        <div class="border-l-4 border-blue-500 bg-gray-50 p-3 rounded-r shadow-sm">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-md font-bold text-gray-800">巴士 ${route}</span>
+                                <span class="text-xs bg-gray-200 px-2 py-0.5 rounded text-gray-600">數碼港總站</span>
+                            </div>
+                            <div class="space-y-1">
+                    `;
+
+                    if (result.data && result.data.length > 0) {
+                        // 篩選出該站點的未來班次
+                        result.data.slice(0, 3).forEach((item, index) => {
+                            if(!item.eta) return;
+                            const etaTime = new Date(item.eta);
+                            const now = new Date();
+                            const diffMins = Math.max(0, Math.round((etaTime - now) / 60000));
+                            
+                            htmlContent += `
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-600">${index + 1} 班 (${item.dest_tc})</span>
+                                    <span class="font-semibold ${diffMins <= 3 ? 'text-red-500 font-bold animate-pulse' : 'text-green-600'}">${diffMins} 分鐘</span>
+                                </div>
+                            `;
+                        });
+                    } else {
+                        htmlContent += `<p class="text-xs text-gray-400">目前沒有即時班次資訊</p>`;
+                    }
+
+                    htmlContent += `</div></div>`;
+                } catch (error) {
+                    htmlContent += `
+                        <div class="bg-red-50 p-2 rounded text-xs text-red-500">
+                            無法載入路線 ${route} 的數據 (API 錯誤)
+                        </div>
+                    `;
+                }
+            }
+
+            etaListContainer.innerHTML = htmlContent;
+            document.getElementById('countdownText').innerText = `最後更新: ${new Date().toLocaleTimeString()}`;
         }
     </script>
 </body>
