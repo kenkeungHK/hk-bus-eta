@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>數碼港巴士 ETA (修正版)</title>
+    <title>數碼港巴士 ETA (終極修復版)</title>
     <style>
         :root { --primary: #0056b3; --bg: #f4f6f9; --card: #ffffff; --text: #333333; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 0; }
@@ -11,7 +11,7 @@
         header h1 { margin: 0; font-size: 1.2rem; }
         .controls { display: flex; align-items: center; gap: 10px; }
         select, button, input { padding: 6px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.9rem; }
-        button { background-color: #28a745; color: white; border: none; cursor: pointer; }
+        button { background-color: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; }
         button:hover { background-color: #218838; }
         .btn-refresh { background-color: #17a2b8; }
         .container { max-width: 600px; margin: 20px auto; padding: 0 15px; display: flex; flex-direction: column; gap: 20px; }
@@ -21,7 +21,7 @@
         .profile-input input { flex: 1; text-transform: uppercase; }
         .tags { display: flex; flex-wrap: wrap; gap: 8px; }
         .tag { background: #e1f5fe; color: #0288d1; padding: 4px 8px; border-radius: 4px; font-weight: bold; display: inline-flex; align-items: center; gap: 6px; }
-        .tag span { cursor: pointer; color: #d32f2f; font-size: 1.1rem; }
+        .tag span { cursor: pointer; color: #d32f2f; font-size: 1.1rem; padding: 0 2px; }
         .eta-item { border-left: 4px solid var(--primary); background: #f8f9fa; padding: 10px; margin-bottom: 10px; border-radius: 0 4px 4px 0; }
         .eta-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px; }
         .eta-row { display: flex; justify-content: space-between; font-size: 0.9rem; color: #555; margin: 4px 0; }
@@ -34,7 +34,7 @@
 <body>
 
     <header>
-        <h1>📍 數碼港巴士站 (輕量修正版)</h1>
+        <h1>📍 數碼港巴士站 (輕量無痛版)</h1>
         <div class="controls">
             <select id="refreshInterval" onchange="setupAutoRefresh()">
                 <option value="60000">1 分鐘更新</option>
@@ -47,9 +47,9 @@
     <div class="container">
         <div class="card">
             <h2>👤 我的巴士 Profile</h2>
-            <p style="font-size: 0.8rem; color: #666; margin-top: -5px;">請輸入經數碼港總站的城巴（如：30X, 42C, 73, 970）</p>
+            <p style="font-size: 0.8rem; color: #666; margin-top: -5px;">請輸入城巴路線（如：30X, 42C, 73, 970）</p>
             <div class="profile-input">
-                <input type="text" id="newRoute" placeholder="輸入路線號碼後按 Enter" onkeyup="if(event.key==='Enter') addRoute()">
+                <input type="text" id="newRoute" placeholder="輸入路線後按 Enter 或點新增" onkeyup="if(event.key==='Enter') addRoute()">
                 <button onclick="addRoute()">新增</button>
             </div>
             <div id="profileTags" class="tags"></div>
@@ -67,10 +67,18 @@
     </div>
 
     <script>
-        // 固定站點：數碼港巴士總站 (Stop ID: 002517)
-        const CYBERPORT_STOP_ID = "002517";
+        const CYBERPORT_STOP_ID = "002517"; // 數碼港總站
         let refreshTimer = null;
-        let favoriteRoutes = JSON.parse(localStorage.getItem('fav_bus_routes_lite')) || ['30X', '970'];
+        let favoriteRoutes = [];
+
+        // 安全讀取 LocalStorage
+        try {
+            const saved = localStorage.getItem('fav_bus_routes_lite_v3');
+            favoriteRoutes = saved ? JSON.parse(saved) : ['30X', '970'];
+        } catch (e) {
+            console.warn("無法存取 LocalStorage，切換至記憶體模式", e);
+            favoriteRoutes = ['30X', '970']; // 阻斷時的預設值
+        }
 
         window.onload = function() {
             renderProfileTags();
@@ -88,18 +96,25 @@
                     </div>
                 `;
             });
-            localStorage.setItem('fav_bus_routes_lite', JSON.stringify(favoriteRoutes));
+            
+            // 安全寫入 LocalStorage
+            try {
+                localStorage.setItem('fav_bus_routes_lite_v3', JSON.stringify(favoriteRoutes));
+            } catch (e) {
+                console.warn("無法寫入 LocalStorage", e);
+            }
         }
 
         function addRoute() {
             const input = document.getElementById('newRoute');
             const route = input.value.trim().toUpperCase();
+            
             if (route && !favoriteRoutes.includes(route)) {
                 favoriteRoutes.push(route);
                 renderProfileTags();
                 fetchAllETAs();
             }
-            input.value = '';
+            input.value = ''; // 確保一定會清空輸入框
         }
 
         function removeRoute(route) {
@@ -127,4 +142,45 @@
 
             for (let route of favoriteRoutes) {
                 try {
-                    const response = await fetch(`
+                    const response = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/ctb/${CYBERPORT_STOP_ID}/${route}`);
+                    const result = await response.json();
+
+                    htmlContent += `
+                        <div class="eta-item">
+                            <div class="eta-header">
+                                <span>巴士 ${route}</span>
+                                <span style="font-size: 0.8rem; color:#888; font-weight: normal;">數碼港總站</span>
+                            </div>
+                    `;
+
+                    if (result.data && result.data.length > 0) {
+                        let hasData = false;
+                        result.data.slice(0, 3).forEach((item, index) => {
+                            if (!item.eta) return;
+                            hasData = true;
+                            const diffMins = Math.max(0, Math.round((new Date(item.eta) - new Date()) / 60000));
+                            const timeClass = diffMins <= 3 ? 'time-urgent' : 'time-normal';
+                            
+                            htmlContent += `
+                                <div class="eta-row">
+                                    <span>第 ${index + 1} 班 (${item.dest_tc || '往目的地'})</span>
+                                    <span class="${timeClass}">${diffMins} 分鐘</span>
+                                </div>
+                            `;
+                        });
+                        if(!hasData) htmlContent += `<div class="eta-row" style="color:#dc3545; font-size:0.8rem;">❌ 數碼港總站暫無此城巴路線</div>`;
+                    } else {
+                        htmlContent += `<div class="eta-row" style="color:#dc3545; font-size:0.8rem;">❌ 數碼港總站暫無此城巴路線</div>`;
+                    }
+                    htmlContent += `</div>`;
+                } catch (error) {
+                    htmlContent += `<div class="eta-item" style="border-color:#dc3545; color:#dc3545; font-size:0.8rem;">路線 ${route} 連線失敗</div>`;
+                }
+            }
+
+            container.innerHTML = htmlContent;
+            document.getElementById('statusText').innerText = `更新於: ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}`;
+        }
+    </script>
+</body>
+</html>
