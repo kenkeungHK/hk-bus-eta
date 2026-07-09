@@ -3,22 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>香港巴士到站時間預報</title>
+    <title>香港巴士到站時間預報 (KMB)</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; }
-        .search-box { margin-bottom: 20px; }
-        input, button, select { padding: 10px; font-size: 16px; margin: 5px 0; width: 100%; box-sizing: border-box; }
-        .stop-item { padding: 10px; border-bottom: 1px solid #ccc; cursor: pointer; }
-        .stop-item:hover { background-color: #f0f0f0; }
-        .eta-item { background: #eef7ff; padding: 5px 10px; margin: 5px 0; border-left: 5px solid #007bff; }
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; }
+        .search-box { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        input, button, select { padding: 12px; font-size: 16px; margin: 5px 0; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        button { background-color: #d9251c; color: white; font-weight: bold; cursor: pointer; border: none; }
+        button:hover { background-color: #b81d15; }
+        .route-info { background: #fff3f3; padding: 10px; border-left: 5px solid #d9251c; margin: 15px 0; border-radius: 4px; }
+        .stop-item { padding: 12px; border-bottom: 1px solid #eee; cursor: pointer; background: white; margin: 3px 0; border-radius: 4px; display: flex; justify-content: space-between; }
+        .stop-item:hover { background-color: #f1f1f1; }
+        .eta-container { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-top: 20px; }
+        .eta-item { background: #eef7ff; padding: 10px; margin: 5px 0; border-left: 5px solid #007bff; border-radius: 4px; display: flex; justify-content: space-between; }
+        .eta-time { font-weight: bold; color: #007bff; font-size: 18px; }
     </style>
 </head>
 <body>
 
-    <h2>🚌 香港巴士到站預報 (KMB)</h2>
+    <h2>🚌 香港巴士到站預報 (九巴 KMB)</h2>
     
     <div class="search-box">
-        <input type="text" id="routeInput" placeholder="輸入巴士路線 (例如: 1A, 30X)">
+        <input type="text" id="routeInput" placeholder="輸入九巴路線 (例如: 1A, 30X, 968)">
         <select id="boundSelect">
             <option value="outbound">去程 (Outbound)</option>
             <option value="inbound">回程 (Inbound)</option>
@@ -26,40 +31,54 @@
         <button onclick="searchRoute()">搜尋路線</button>
     </div>
 
-    <h3 id="routeTitle"></h3>
+    <div id="routeInfoBox" class="route-info" style="display: none;">
+        <strong id="routeTitle"></strong><br>
+        <span id="routeDirections"></span>
+    </div>
+
     <div id="stopList"></div>
     <div id="etaResult"></div>
 
     <script>
         const apiBase = "https://data.etabus.gov.hk/v1/transport/kmb";
 
-        // 搜尋路線與中途站
         async function searchRoute() {
             const route = document.getElementById('routeInput').value.toUpperCase().trim();
-            const dir = document.getElementById('boundSelect').value; // 修正：直接使用 'outbound' 或 'inbound'
+            const dir = document.getElementById('boundSelect').value; 
             
             if (!route) return alert('請輸入路線');
             
-            document.getElementById('stopList').innerHTML = "載入中...";
+            document.getElementById('stopList').innerHTML = "正在載入車站列表...";
             document.getElementById('etaResult').innerHTML = "";
-            document.getElementById('routeTitle').innerText = `路線: ${route}`;
+            document.getElementById('routeInfoBox').style.display = "none";
 
             try {
-                // 發送請求，例如：route-stop/30X/inbound/1
+                // 依據數據字典 2.1 節，先獲取路線起點與終點資訊
+                const routeRes = await fetch(`${apiBase}/route/${route}/${dir}/1`);
+                const routeData = await routeRes.json();
+                
+                if (routeData.data && routeData.data.orig_tc) {
+                    document.getElementById('routeTitle').innerText = `九巴路線: ${route}`;
+                    document.getElementById('routeDirections').innerText = `起點：${routeData.data.orig_tc} ➔ 終點：${routeData.data.dest_tc}`;
+                    document.getElementById('routeInfoBox').style.display = "block";
+                }
+
+                // 依據數據字典 2.3 節，獲取該路線的車站列表
                 const response = await fetch(`${apiBase}/route-stop/${route}/${dir}/1`);
                 const resData = await response.json();
                 
                 if (!resData.data || resData.data.length === 0) {
-                    document.getElementById('stopList').innerHTML = "找不到該路線或方向資料。";
+                    document.getElementById('stopList').innerHTML = "<p>找不到該九巴路線或方向資料。若目的地為數碼港，請使用城巴 API。</p>";
                     return;
                 }
 
-                // 2. 渲染車站列表
-                let listHtml = "<h4>請選擇車站查看 ETA：</h4>";
+                // 渲染車站列表
+                let listHtml = "<h3>請點擊車站查看到站時間 (ETA)：</h3>";
                 for (let item of resData.data) {
                     const stopName = await getStopName(item.stop);
                     listHtml += `<div class="stop-item" onclick="getETA('${item.stop}', '${route}')">
-                                    ${item.seq}. ${stopName}
+                                    <span>${item.seq}. ${stopName}</span>
+                                    <span style="color: #999; font-size: 12px;">ID: ${item.stop.substring(0,6)}</span>
                                  </div>`;
                 }
                 document.getElementById('stopList').innerHTML = listHtml;
@@ -70,7 +89,7 @@
             }
         }
 
-        // 獲取單個車站名稱
+        // 依據數據字典 2.2 節，獲取車站名稱
         async function getStopName(stopId) {
             try {
                 const response = await fetch(`${apiBase}/stop/${stopId}`);
@@ -81,9 +100,9 @@
             }
         }
 
-        // 獲取特定車站及路線的到站時間 (ETA)
+        // 依據數據字典 2.4 節，獲取特定的到站時間 (ETA)
         async function getETA(stopId, route) {
-            document.getElementById('etaResult').innerHTML = "正在獲取到站時間...";
+            document.getElementById('etaResult').innerHTML = "<div class='eta-container'>正在獲取到站時間...</div>";
             try {
                 const response = await fetch(`${apiBase}/stop-eta/${stopId}`);
                 const resData = await response.json();
@@ -92,23 +111,28 @@
                 const etas = resData.data.filter(item => item.route === route);
                 
                 if (etas.length === 0) {
-                    document.getElementById('etaResult').innerHTML = "<h4>暫時沒有到站時間資料。</h4>";
+                    document.getElementById('etaResult').innerHTML = "<div class='eta-container'><h4>暫時沒有到站時間資料。</h4></div>";
                     return;
                 }
 
-                let etaHtml = `<h4>${etas[0].dest_tc} 方向 - 到站預報：</h4>`;
+                let etaHtml = `<div class='eta-container'><h3>往 ${etas[0].dest_tc} 方向預預報：</h3>`;
                 etas.forEach(item => {
+                    // 解析時間格式
                     const time = item.eta ? new Date(item.eta).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "未有資料";
-                    const rmk = item.rmk_tc || "";
-                    etaHtml += `<div class="eta-item"><b>${time}</b> - ${rmk}</div>`;
+                    const rmk = item.rmk_tc || "即將到達";
+                    etaHtml += `<div class="eta-item">
+                                    <span class="eta-time">${time}</span>
+                                    <span style="color: #666;">${rmk}</span>
+                                </div>`;
                 });
+                etaHtml += `</div>`;
                 
                 document.getElementById('etaResult').innerHTML = etaHtml;
                 document.getElementById('etaResult').scrollIntoView({ behavior: 'smooth' });
 
             } catch (error) {
                 console.error(error);
-                document.getElementById('etaResult').innerHTML = "無法獲取到站時間。";
+                document.getElementById('etaResult').innerHTML = "<div class='eta-container'>無法獲取到站時間。</div>";
             }
         }
     </script>
