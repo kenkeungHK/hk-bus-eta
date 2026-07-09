@@ -3,115 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>數碼港巴士即時 ETA 儀表板</title>
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <!-- Leaflet Map CSS & JS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <title>數碼港巴士 ETA 輕量版</title>
+    <style>
+        :root {
+            --primary: #0056b3;
+            --bg: #f4f6f9;
+            --card: #ffffff;
+            --text: #333333;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+        }
+        header {
+            background-color: var(--primary);
+            color: white;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        header h1 { margin: 0; font-size: 1.2rem; }
+        .controls { display: flex; align-items: center; gap: 10px; }
+        select, button, input {
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            font-size: 0.9rem;
+        }
+        button {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #218838; }
+        .btn-refresh { background-color: #17a2b8; }
+        .btn-refresh:hover { background-color: #138496; }
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 0 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .card {
+            background: var(--card);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .card h2 { margin-top: 0; font-size: 1.1rem; border-bottom: 2px solid #eee; padding-bottom: 8px; }
+        .profile-input { display: flex; gap: 8px; margin-bottom: 12px; }
+        .profile-input input { flex: 1; text-transform: uppercase; }
+        .tags { display: flex; flex-wrap: wrap; gap: 8px; }
+        .tag {
+            background: #e1f5fe;
+            color: #0288d1;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .tag span { cursor: pointer; color: #d32f2f; }
+        .eta-item {
+            border-left: 4px solid var(--primary);
+            background: #f8f9fa;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 0 4px 4px 0;
+        }
+        .eta-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px; }
+        .eta-row { display: flex; justify-content: space-between; font-size: 0.9rem; color: #555; margin: 4px 0; }
+        .time-urgent { color: #dc3545; font-weight: bold; animation: pulse 1s infinite; }
+        .time-normal { color: #28a745; font-weight: bold; }
+        .status-text { font-size: 0.8rem; color: #888; text-align: right; }
+        @keyframes pulse { 50% { opacity: 0.5; } }
+    </style>
 </head>
-<body class="bg-gray-100 font-sans min-h-screen flex flex-col">
+<body>
 
-    <!-- 頂部導航欄 -->
-    <header class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
-        <h1 class="text-xl font-bold">📍 數碼港智慧巴士站</h1>
-        <div class="flex items-center space-x-4">
-            <!-- 刷新頻率設定 -->
-            <label class="text-sm">更新頻率:</label>
-            <select id="refreshInterval" class="bg-white text-gray-800 rounded px-2 py-1 text-sm" onchange="setupAutoRefresh()">
-                <option value="60000">1 分鐘</option>
-                <option value="300000">5 分鐘</option>
+    <header>
+        <h1>📍 數碼港巴士站 (輕量版)</h1>
+        <div class="controls">
+            <select id="refreshInterval" onchange="setupAutoRefresh()">
+                <option value="60000">1 分鐘更新</option>
+                <option value="300000">5 分鐘更新</option>
             </select>
-            <button onclick="fetchAllETAs()" class="bg-blue-800 hover:bg-blue-900 px-3 py-1 rounded text-sm transition">🔄 立即刷新</button>
+            <button class="btn-refresh" onclick="fetchAllETAs()">🔄 刷新</button>
         </div>
     </header>
 
-    <!-- 主內容區 -->
-    <div class="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
-        
-        <!-- 左側：Profile 設定與 ETA 顯示 -->
-        <div class="md:col-span-1 flex flex-col space-y-4">
-            
-            <!-- Profile 巴士路線管理 -->
-            <div class="bg-white p-4 rounded-lg shadow">
-                <h2 class="text-lg font-semibold mb-3">👤 我的巴士 Profile</h2>
-                <div class="flex space-x-2 mb-3">
-                    <input type="text" id="newRoute" placeholder="例如: 30X, 970, 42C" class="border rounded px-3 py-1 flex-1 text-sm uppercase">
-                    <button onclick="addRoute()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-1 rounded text-sm transition">新增</button>
-                </div>
-                <div id="profileTags" class="flex flex-wrap gap-2">
-                    <!-- 路線標籤會生成在這裡 -->
-                </div>
+    <div class="container">
+        <div class="card">
+            <h2>👤 我的巴士 Profile</h2>
+            <div class="profile-input">
+                <input type="text" id="newRoute" placeholder="例如: 30X, 970, 42C">
+                <button onclick="addRoute()">新增</button>
             </div>
-
-            <!-- ETA 顯示列表 -->
-            <div class="bg-white p-4 rounded-lg shadow flex-1 overflow-y-auto">
-                <h2 class="text-lg font-semibold mb-3 flex justify-between">
-                    <span>⏱️ 即時到站時間 (ETA)</span>
-                    <span id="countdownText" class="text-xs text-gray-500 self-center"></span>
-                </h2>
-                <div id="etaList" class="space-y-3">
-                    <p class="text-gray-500 text-sm">請先在上方 Profile 新增巴士路線。</p>
-                </div>
-            </div>
+            <div id="profileTags" class="tags"></div>
         </div>
 
-        <!-- 右側：地圖顯示 -->
-        <div class="md:col-span-2 bg-white rounded-lg shadow overflow-hidden h-[500px] md:h-auto min-h-[400px]">
-            <div id="map" class="w-full h-full"></div>
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="border: none; margin: 0;">⏱️ 即時到站時間 (ETA)</h2>
+                <div id="statusText" class="status-text"></div>
+            </div>
+            <div id="etaList" style="margin-top: 15px;">
+                <p style="color: #888;">請在上方 Profile 新增想追蹤的巴士路線。</p>
+            </div>
         </div>
     </div>
 
     <script>
-        // 固定 GPS：數碼港
-        const CYBERPORT_LAT = 22.2593;
-        const CYBERPORT_LNG = 114.1321;
-        
-        let map;
-        let cyberportMarker;
+        // 固定站點：數碼港巴士總站 (Stop ID: 002517)
+        const CYBERPORT_STOP_ID = "002517";
         let refreshTimer = null;
-        
-        // 從本地儲存載入 Profile 路線，預設提供 30X 和 970
-        let favoriteRoutes = JSON.parse(localStorage.getItem('fav_bus_routes')) || ['30X', '970'];
+        let favoriteRoutes = JSON.parse(localStorage.getItem('fav_bus_routes_lite')) || ['30X', '970'];
 
-        // 初始化網頁
         window.onload = function() {
-            initMap();
             renderProfileTags();
             setupAutoRefresh();
             fetchAllETAs();
         };
 
-        // 1. 初始化地圖
-        function initMap() {
-            map = L.map('map').setView([CYBERPORT_LAT, CYBERPORT_LNG], 16);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
-            }).addTo(map);
-
-            // 標記數碼港核心位置
-            cyberportMarker = L.marker([CYBERPORT_LAT, CYBERPORT_LNG])
-                .addTo(map)
-                .bindPopup('<b>📍 您當前的位置：數碼港</b>')
-                .openPopup();
-        }
-
-        // 2. 渲染 Profile 標籤
         function renderProfileTags() {
             const container = document.getElementById('profileTags');
             container.innerHTML = '';
             favoriteRoutes.forEach(route => {
                 container.innerHTML += `
-                    <span class="inline-flex items-center bg-blue-100 text-blue-800 text-sm font-medium px-2.5 py-0.5 rounded shadow-sm">
-                        ${route}
-                        <button onclick="removeRoute('${route}')" class="ml-1.5 text-blue-500 hover:text-blue-900 font-bold">×</button>
-                    </span>
+                    <div class="tag">
+                        ${route} <span onclick="removeRoute('${route}')">×</span>
+                    </div>
                 `;
             });
-            localStorage.setItem('fav_bus_routes', JSON.stringify(favoriteRoutes));
+            localStorage.setItem('fav_bus_routes_lite', JSON.stringify(favoriteRoutes));
         }
 
-        // 3. 新增與刪除路線
         function addRoute() {
             const input = document.getElementById('newRoute');
             const route = input.value.trim().toUpperCase();
@@ -129,79 +165,28 @@
             fetchAllETAs();
         }
 
-        // 4. 設定自動刷新計時器
         function setupAutoRefresh() {
             if (refreshTimer) clearInterval(refreshTimer);
             const interval = parseInt(document.getElementById('refreshInterval').value);
-            refreshTimer = setInterval(() => {
-                fetchAllETAs();
-            }, interval);
+            refreshTimer = setInterval(fetchAllETAs, interval);
         }
 
-        // 5. 核心：獲取所有 Profile 巴士的 ETA 數據
         async function fetchAllETAs() {
-            const etaListContainer = document.getElementById('etaList');
+            const container = document.getElementById('etaList');
             if (favoriteRoutes.length === 0) {
-                etaListContainer.innerHTML = '<p class="text-gray-500 text-sm">Profile 中沒有路線。</p>';
+                container.innerHTML = '<p style="color: #888;">Profile 中沒有路線。</p>';
+                document.getElementById('statusText').innerText = '';
                 return;
             }
 
-            etaListContainer.innerHTML = '<p class="text-blue-500 text-sm animate-pulse">更新數據中...</p>';
-            
+            container.innerHTML = '<p style="color: #0056b3;">正在更新即時班次...</p>';
             let htmlContent = '';
-            
-            // 遍歷使用者收藏的每條路線
+
             for (let route of favoriteRoutes) {
                 try {
-                    // 為了簡化前端運算，這裡直接向城巴 API 請求該路線在「數碼港總站」或周邊的動態 ETA
-                    // 註：此處以城巴數碼港大型總站常用的某幾個站點邏輯或範例串接
-                    // 實際生產環境中可精準比對數碼港周邊所有 StopID
-                    
-                    // 呼叫城巴 v2 API (此處示範直接拿取該路線數據，政府 API 支援 CORS)
-                    const response = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/ctb/002517/${route}`);
+                    // 串接政府資料一線通城巴 v2 API
+                    const response = await fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/ctb/${CYBERPORT_STOP_ID}/${route}`);
                     const result = await response.json();
-                    
+
                     htmlContent += `
-                        <div class="border-l-4 border-blue-500 bg-gray-50 p-3 rounded-r shadow-sm">
-                            <div class="flex justify-between items-center mb-1">
-                                <span class="text-md font-bold text-gray-800">巴士 ${route}</span>
-                                <span class="text-xs bg-gray-200 px-2 py-0.5 rounded text-gray-600">數碼港總站</span>
-                            </div>
-                            <div class="space-y-1">
-                    `;
-
-                    if (result.data && result.data.length > 0) {
-                        // 篩選出該站點的未來班次
-                        result.data.slice(0, 3).forEach((item, index) => {
-                            if(!item.eta) return;
-                            const etaTime = new Date(item.eta);
-                            const now = new Date();
-                            const diffMins = Math.max(0, Math.round((etaTime - now) / 60000));
-                            
-                            htmlContent += `
-                                <div class="flex justify-between text-sm">
-                                    <span class="text-gray-600">${index + 1} 班 (${item.dest_tc})</span>
-                                    <span class="font-semibold ${diffMins <= 3 ? 'text-red-500 font-bold animate-pulse' : 'text-green-600'}">${diffMins} 分鐘</span>
-                                </div>
-                            `;
-                        });
-                    } else {
-                        htmlContent += `<p class="text-xs text-gray-400">目前沒有即時班次資訊</p>`;
-                    }
-
-                    htmlContent += `</div></div>`;
-                } catch (error) {
-                    htmlContent += `
-                        <div class="bg-red-50 p-2 rounded text-xs text-red-500">
-                            無法載入路線 ${route} 的數據 (API 錯誤)
-                        </div>
-                    `;
-                }
-            }
-
-            etaListContainer.innerHTML = htmlContent;
-            document.getElementById('countdownText').innerText = `最後更新: ${new Date().toLocaleTimeString()}`;
-        }
-    </script>
-</body>
-</html>
+                        <div class="eta-item">
